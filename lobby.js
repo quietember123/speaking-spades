@@ -39,14 +39,20 @@ export function initLobby({auth, db, authMod, dbMod}) {
         if (stop) stop(); stop = null; current = null; toggle(false); say('Room closed or your seat is no longer available.'); return;
       }
       const room = snap.data();
-      $('lobby-settings').textContent = `${room.mode === 'joker' ? 'Joker' : 'Classic'} Spades • ${room.members.length}/4 players`;
+      $('lobby-settings').textContent = `${room.mode === 'joker' ? 'Joker' : 'Classic'} Spades • ${room.members.length} humans + ${room.cpuSeats || 0} Expert CPUs / 4 seats`;
       $('lobby-players').replaceChildren();
       for (const [i, uid] of room.members.entries()) {
         const p = document.createElement('p');
         p.textContent = `${i+1}. ${uid === room.hostUid ? 'Host' : 'Player'} ${uid === auth.currentUser?.uid ? '(You)' : '• joined'} `;
         $('lobby-players').append(p);
       }
-      say('Private lobby connected. Waiting for players.');
+      for (let i=0; i<(room.cpuSeats||0); i++) {
+        const p=document.createElement('p'); p.textContent=`CPU ${i+1} • Expert (reserved seat)`;
+        $('lobby-players').append(p);
+      }
+      $('lobby-fill-cpu').disabled = room.hostUid !== auth.currentUser?.uid || room.members.length+(room.cpuSeats||0)===4;
+      $('lobby-clear-cpu').disabled = room.hostUid !== auth.currentUser?.uid || !(room.cpuSeats||0);
+      say('Private lobby connected. CPU seats are placeholders until online gameplay is built.');
     }, err => say('Room connection error: ' + err.message));
   }
   async function task(fn) {
@@ -65,7 +71,7 @@ export function initLobby({auth, db, authMod, dbMod}) {
         await runTransaction(db, async tx => {
           const snap = await tx.get(ref);
           if (snap.exists()) throw Error('Code collision');
-          tx.set(ref, {hostUid:u.uid, members:[u.uid], mode, status:'waiting', createdAt:serverTimestamp()});
+          tx.set(ref, {hostUid:u.uid, members:[u.uid], mode, status:'waiting', cpuSeats:0, createdAt:serverTimestamp()});
         });
         watch(code); return;
       } catch(e) { if (e.message !== 'Code collision') throw e; }
@@ -82,11 +88,24 @@ export function initLobby({auth, db, authMod, dbMod}) {
       const r = snap.data();
       if (r.status !== 'waiting') throw Error('Room is not accepting players.');
       if (r.members.includes(u.uid)) return;
-      if (r.members.length >= 4) throw Error('Room is full.');
+      if (r.members.length + (r.cpuSeats || 0) >= 4) throw Error('Room is full.');
       tx.update(ref, {members:[...r.members,u.uid]});
     });
     watch(code);
   });
+  async function setCpuSeats(fill) {
+    const u=verifiedUser(); if(!current)throw Error('Create or join a room first.');
+    await runTransaction(db, async tx=>{
+      const ref=roomRef(current), snap=await tx.get(ref);
+      if(!snap.exists())throw Error('Room no longer exists.');
+      const r=snap.data();
+      if(r.hostUid!==u.uid)throw Error('Only the host can manage CPU seats.');
+      if(r.status!=='waiting')throw Error('Room is no longer waiting.');
+      tx.update(ref,{cpuSeats:fill?4-r.members.length:0});
+    });
+  }
+  $('lobby-fill-cpu').onclick=()=>task(()=>setCpuSeats(true));
+  $('lobby-clear-cpu').onclick=()=>task(()=>setCpuSeats(false));
   $('lobby-leave').onclick = () => task(leaveRoom);
   $('lobby-copy').onclick = async () => {
     try { await navigator.clipboard.writeText(current); say('Invite code copied.'); }
