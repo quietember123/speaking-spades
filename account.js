@@ -23,6 +23,8 @@ else {
     $('auth-logout').onclick=()=>signOut(auth).catch(e=>msg(friendly(e)));
     $('auth-save').onclick=async()=>{const name=$('auth-displayname').value.trim();if(!usernameOk(name)){msg('Username must be 3–20 letters, numbers, or underscores.');return;}try{await setDoc(doc(db,'profiles',auth.currentUser.uid),{username:name},{merge:true});await updateProfile(auth.currentUser,{displayName:name});show(auth.currentUser);msg('Username updated.');}catch(e){msg(friendly(e));}};
     function show(user){$('auth-guest').hidden=!!user;$('auth-member').hidden=!user;$('auth-state').textContent=user?'Signed in':'Guest practice mode';if(user){$('auth-profile').textContent=`${user.displayName||'Player'} • ${user.email} • ${user.emailVerified?'Email verified':'Email NOT verified'}`;$('auth-verify').hidden=user.emailVerified;}}
+    const lobby = await import("./lobby.js");
+    lobby.initLobby({auth,db,authMod,dbMod});
     onAuthStateChanged(auth,async user=>{show(user);if(user){try{const snap=await getDoc(doc(db,'profiles',user.uid));if(snap.exists())$('auth-profile').textContent+=` • Profile: ${snap.data().username}`;}catch(e){msg('Profile could not be loaded: '+friendly(e));}}});
   } catch(e){$('auth-state').textContent='Account service could not load; practice still works.';msg(String(e.message||e));}
 }
